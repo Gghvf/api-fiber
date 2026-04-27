@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors" // 1. Импорт CORS middleware
 	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
@@ -81,6 +82,11 @@ func main() {
 	}
 
 	app := fiber.New()
+
+	// 2. Подключение CORS middleware
+	// Разрешает запросы с любого источника (для разработки).
+	// В продакшене лучше указать конкретный домен: AllowOrigins: "http://mysite.com"
+	app.Use(cors.New())
 
 	// Логирование запросов
 	app.Use(logger.New())
@@ -516,6 +522,31 @@ func main() {
 		}
 
 		return c.JSON(fiber.Map{"available_rooms": availableRooms})
+	})
+
+	app.Get("/login", func(c *fiber.Ctx) error {
+		login := c.Query("login")
+
+		if login == "" {
+			return c.JSON(fiber.Map{"error": "Логин обязателен"})
+		}
+
+		if !isUserExists(login) {
+			return c.Status(404).JSON(fiber.Map{"error": "Пользователь не найден"})
+		}
+
+		idx := findUser(login)
+		fio := ""
+		if idx != -1 {
+			fio = fmt.Sprintf("%s %s %s", data.Fam[idx], data.Ima[idx], data.Otch[idx])
+		}
+
+		return c.JSON(fiber.Map{
+			"message":  "Вход выполнен успешно",
+			"login":    login,
+			"fio":      fio,
+			"is_admin": findAdmin(login),
+		})
 	})
 
 	log.Fatal(app.Listen(":3000"))
