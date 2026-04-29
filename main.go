@@ -590,5 +590,49 @@ func main() {
 		})
 	})
 
+	app.Get("/admin/users", func(c *fiber.Ctx) error {
+		login := c.Query("login")
+
+		if !findAdmin(login) {
+			return c.JSON(fiber.Map{"error": "Требуется права администратора"})
+		}
+
+		type UserInfo struct {
+			Login   string `json:"login"`
+			Fam     string `json:"fam"`
+			Ima     string `json:"ima"`
+			Otch    string `json:"otch"`
+			Phone   string `json:"phone"`
+			Kolvo   int    `json:"kolvo"`
+			IsAdmin bool   `json:"isAdmin"`
+		}
+
+		users := []UserInfo{}
+		for i := range data.User {
+			// Пропускаем техническую проверку, собираем всех
+			isAdmin := findAdmin(data.User[i])
+
+			fio := ""
+			if data.Fam[i] != "" || data.Ima[i] != "" || data.Otch[i] != "" {
+				fio = fmt.Sprintf("%s %s %s", data.Fam[i], data.Ima[i], data.Otch[i])
+			} else {
+				fio = data.User[i] // Если ФИО нет, используем логин для отображения
+			}
+
+			users = append(users, UserInfo{
+				Login:   data.User[i],
+				Fam:     data.Fam[i],
+				Ima:     data.Ima[i],
+				Otch:    data.Otch[i],
+				Phone:   data.Phone[i],
+				Kolvo:   data.Kolvo[i],
+				IsAdmin: isAdmin,
+			})
+			_ = fio // переменная используется для логики выше, но в структуру кладем раздельные поля
+		}
+
+		return c.JSON(fiber.Map{"users": users})
+	})
+
 	log.Fatal(app.Listen(":3000"))
 }
