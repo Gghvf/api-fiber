@@ -438,15 +438,39 @@ func main() {
 		login := c.Query("login")
 
 		userIndex := findUser(login)
-		if userIndex == -1 {
+		isAdmin := findAdmin(login)
+
+		// Если пользователя нет в базе пользователей И он не админ (или админ без записи в user)
+		if userIndex == -1 && !isAdmin {
 			return c.JSON(fiber.Map{"error": "Пользователь не найден"})
 		}
 
+		// Если это чистый админ без записи в user (индекс -1), возвращаем данные с заглушками
+		if userIndex == -1 {
+			return c.JSON(fiber.Map{
+				"fio":      login, // Используем логин вместо ФИО
+				"phone":    "не указан",
+				"kolvo":    0,
+				"is_admin": true,
+			})
+		}
+
+		f := data.Fam[userIndex]
+		i := data.Ima[userIndex]
+		o := data.Otch[userIndex]
+		fio := ""
+		
+		if f == "" && i == "" && o == "" {
+			fio = login
+		} else {
+			fio = fmt.Sprintf("%s %s %s", f, i, o)
+		}
+
 		return c.JSON(fiber.Map{
-			"fio":      fmt.Sprintf("%s %s %s", data.Fam[userIndex], data.Ima[userIndex], data.Otch[userIndex]),
+			"fio":      fio,
 			"phone":    data.Phone[userIndex],
 			"kolvo":    data.Kolvo[userIndex],
-			"is_admin": findAdmin(login),
+			"is_admin": isAdmin,
 		})
 	})
 
@@ -531,21 +555,39 @@ func main() {
 			return c.JSON(fiber.Map{"error": "Логин обязателен"})
 		}
 
-		if !isUserExists(login) {
+		// Проверяем существование: ищем в пользователях ИЛИ в админах
+		// Но для получения индекса данных нам нужно найти его в массиве User
+		idx := findUser(login)
+		
+		// Если не нашли в User, но нашли в Admin (редкий случай рассинхрона), 
+		// то считаем что это админ без расширенных данных
+		isAdmin := findAdmin(login)
+		
+		if idx == -1 && !isAdmin {
 			return c.Status(404).JSON(fiber.Map{"error": "Пользователь не найден"})
 		}
 
-		idx := findUser(login)
 		fio := ""
+		// Если пользователь найден в базе данных (есть индекс)
 		if idx != -1 {
-			fio = fmt.Sprintf("%s %s %s", data.Fam[idx], data.Ima[idx], data.Otch[idx])
+			f := data.Fam[idx]
+			i := data.Ima[idx]
+			o := data.Otch[idx]
+			
+			if f == "" && i == "" && o == "" {
+				fio = login 
+			} else {
+				fio = fmt.Sprintf("%s %s %s", f, i, o)
+			}
+		} else {
+			fio = login
 		}
 
 		return c.JSON(fiber.Map{
 			"message":  "Вход выполнен успешно",
 			"login":    login,
 			"fio":      fio,
-			"is_admin": findAdmin(login),
+			"is_admin": isAdmin,
 		})
 	})
 
