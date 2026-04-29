@@ -135,12 +135,12 @@ func main() {
 		data.Admin = append(data.Admin, login)
 		// Также добавляем в пользователи для возможности входа
 		data.User = append(data.User, login)
-		// Добавляем пустые данные пользователя
+		// Добавляем данные пользователя (ФИО пустые, но kolvo ставим 999 для универсальности)
 		data.Fam = append(data.Fam, "")
 		data.Ima = append(data.Ima, "")
 		data.Otch = append(data.Otch, "")
 		data.Phone = append(data.Phone, "")
-		data.Kolvo = append(data.Kolvo, 0)
+		data.Kolvo = append(data.Kolvo, 999)
 
 		if err := saveDB(); err != nil {
 			return c.JSON(fiber.Map{"error": "Ошибка сохранения"})
@@ -438,39 +438,21 @@ func main() {
 		login := c.Query("login")
 
 		userIndex := findUser(login)
-		isAdmin := findAdmin(login)
-
-		// Если пользователя нет в базе пользователей И он не админ (или админ без записи в user)
-		if userIndex == -1 && !isAdmin {
+		if userIndex == -1 {
 			return c.JSON(fiber.Map{"error": "Пользователь не найден"})
 		}
 
-		// Если это чистый админ без записи в user (индекс -1), возвращаем данные с заглушками
-		if userIndex == -1 {
-			return c.JSON(fiber.Map{
-				"fio":      login, // Используем логин вместо ФИО
-				"phone":    "не указан",
-				"kolvo":    0,
-				"is_admin": true,
-			})
-		}
-
-		f := data.Fam[userIndex]
-		i := data.Ima[userIndex]
-		o := data.Otch[userIndex]
-		fio := ""
-		
-		if f == "" && i == "" && o == "" {
+		fio := fmt.Sprintf("%s %s %s", data.Fam[userIndex], data.Ima[userIndex], data.Otch[userIndex])
+		// Если ФИО пустые (как у админа), возвращаем логин
+		if fio == "  " || fio == "" {
 			fio = login
-		} else {
-			fio = fmt.Sprintf("%s %s %s", f, i, o)
 		}
 
 		return c.JSON(fiber.Map{
 			"fio":      fio,
 			"phone":    data.Phone[userIndex],
 			"kolvo":    data.Kolvo[userIndex],
-			"is_admin": isAdmin,
+			"is_admin": findAdmin(login),
 		})
 	})
 
@@ -478,8 +460,17 @@ func main() {
 	app.Get("/rooms", func(c *fiber.Ctx) error {
 		login := c.Query("login")
 
-		if !findAdmin(login) && findUser(login) == -1 {
+		// Админ может смотреть все комнаты, обычный пользователь тоже
+		isAdmin := findAdmin(login)
+		userIndex := findUser(login)
+
+		if !isAdmin && userIndex == -1 {
 			return c.JSON(fiber.Map{"error": "Необходимо войти"})
+		}
+
+		// Если массивы пустые, возвращаем пустой список
+		if len(data.Num) == 0 {
+			return c.JSON(fiber.Map{"rooms": []fiber.Map{}})
 		}
 
 		rooms := make([]fiber.Map, len(data.Num))
@@ -535,9 +526,17 @@ func main() {
 			return c.JSON(fiber.Map{"error": "Пользователь не найден"})
 		}
 
+		// Защита от выхода за границы массива
+		if userIndex >= len(data.Kolvo) {
+			return c.JSON(fiber.Map{"error": "Ошибка данных пользователя"})
+		}
+
+		userKolvo := data.Kolvo[userIndex]
+
 		availableRooms := []fiber.Map{}
 		for i := range data.Num {
-			if !data.Status[i] && data.Capacity[i] >= data.Kolvo[userIndex] {
+			// Показываем комнату, если она свободна И вместимость >= кол-во персон пользователя
+			if !data.Status[i] && data.Capacity[i] >= userKolvo {
 				availableRooms = append(availableRooms, fiber.Map{
 					"num":      data.Num[i],
 					"capacity": data.Capacity[i],
@@ -558,11 +557,11 @@ func main() {
 		// Проверяем существование: ищем в пользователях ИЛИ в админах
 		// Но для получения индекса данных нам нужно найти его в массиве User
 		idx := findUser(login)
-		
-		// Если не нашли в User, но нашли в Admin (редкий случай рассинхрона), 
+
+		// Если не нашли в User, но нашли в Admin (редкий случай рассинхрона),
 		// то считаем что это админ без расширенных данных
 		isAdmin := findAdmin(login)
-		
+
 		if idx == -1 && !isAdmin {
 			return c.Status(404).JSON(fiber.Map{"error": "Пользователь не найден"})
 		}
@@ -573,9 +572,9 @@ func main() {
 			f := data.Fam[idx]
 			i := data.Ima[idx]
 			o := data.Otch[idx]
-			
+
 			if f == "" && i == "" && o == "" {
-				fio = login 
+				fio = login
 			} else {
 				fio = fmt.Sprintf("%s %s %s", f, i, o)
 			}
