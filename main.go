@@ -32,91 +32,86 @@ var data DataBase
 var mu sync.Mutex // Блокировка для потокобезопасности
 
 func loadDB() error {
-	mu.Lock()
-	defer mu.Unlock()
-
 	file, err := os.Open("data.json")
 	if err != nil {
-		// Файл не найден или ошибка открытия - создаем чистую структуру
-		log.Println("Файл data.json не найден или не открыт. Инициализация новой БД.")
-		initEmptyDB()
-		return saveDB()
+		// Файл не найден или ошибка открытия. Инициализируем пустую структуру.
+		// ВАЖНО: Не вызываем saveDB здесь, чтобы избежать deadlock при старте.
+		data = DataBase{
+			Fam:      []string{},
+			Ima:      []string{},
+			Otch:     []string{},
+			Phone:    []string{},
+			Kolvo:    []int{},
+			Num:      []int{},
+			Capacity: []int{},
+			Status:   []bool{},
+			Date:     []string{},
+			Book:     []string{},
+			User:     []string{},
+			Admin:    []string{},
+		}
+		fmt.Println("Файл data.json не найден. Инициализация новой БД в памяти.")
+		return nil
 	}
 	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	var tempDB DataBase
-	if err := decoder.Decode(&tempDB); err != nil {
-		log.Println("Ошибка парсинга JSON. Сброс к пустой БД.", err)
-		initEmptyDB()
-		return saveDB()
-	}
-
-	// Проверка целостности: все срезы должны быть одной длины (кроме Admin)
-	// Базовая длина определяется по массиву User или Num
-	lenUser := len(tempDB.User)
-	lenNum := len(tempDB.Num)
 	
-	// Проверяем согласованность пользовательских данных
-	if len(tempDB.Fam) != lenUser || len(tempDB.Ima) != lenUser || len(tempDB.Otch) != lenUser || 
-	   len(tempDB.Phone) != lenUser || len(tempDB.Kolvo) != lenUser {
-		log.Println("Нарушена целостность данных пользователей. Сброс пользователей.")
-		tempDB.User = []string{}
-		tempDB.Fam = []string{}
-		tempDB.Ima = []string{}
-		tempDB.Otch = []string{}
-		tempDB.Phone = []string{}
-		tempDB.Kolvo = []int{}
-		// Админов тоже чистим, так как они ссылаются на пользователей
-		tempDB.Admin = []string{}
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&data); err != nil {
+		// Если файл поврежден, инициализируем пустую структуру
+		fmt.Println("Ошибка чтения data.json. Инициализация новой БД.")
+		data = DataBase{
+			Fam:      []string{},
+			Ima:      []string{},
+			Otch:     []string{},
+			Phone:    []string{},
+			Kolvo:    []int{},
+			Num:      []int{},
+			Capacity: []int{},
+			Status:   []bool{},
+			Date:     []string{},
+			Book:     []string{},
+			User:     []string{},
+			Admin:    []string{},
+		}
+		return nil
 	}
-
-	// Проверяем согласованность данных комнат
-	if len(tempDB.Capacity) != lenNum || len(tempDB.Status) != lenNum || 
-	   len(tempDB.Date) != lenNum || len(tempDB.Book) != lenNum {
-		log.Println("Нарушена целостность данных комнат. Сброс комнат.")
-		tempDB.Num = []int{}
-		tempDB.Capacity = []int{}
-		tempDB.Status = []bool{}
-		tempDB.Date = []string{}
-		tempDB.Book = []string{}
+	
+	// Проверка целостности массивов (защита от рассинхронизации)
+	length := len(data.Num)
+	if len(data.Capacity) != length || len(data.Status) != length || len(data.Date) != length || len(data.Book) != length {
+		fmt.Println("Обнаружена рассинхронизация данных комнат. Исправление структуры.")
+		// Находим минимальную длину, чтобы не выйти за границы
+		minLen := length
+		if len(data.Capacity) < minLen { minLen = len(data.Capacity) }
+		if len(data.Status) < minLen { minLen = len(data.Status) }
+		if len(data.Date) < minLen { minLen = len(data.Date) }
+		if len(data.Book) < minLen { minLen = len(data.Book) }
+		
+		// Обрезаем все массивы до минимальной длины
+		data.Num = data.Num[:minLen]
+		data.Capacity = data.Capacity[:minLen]
+		data.Status = data.Status[:minLen]
+		data.Date = data.Date[:minLen]
+		data.Book = data.Book[:minLen]
 	}
-
-	data = tempDB
-	log.Printf("БД загружена. Пользователей: %d, Комнат: %d", len(data.User), len(data.Num))
+	
+	fmt.Println("База данных успешно загружена.")
 	return nil
 }
 
-func initEmptyDB() {
-	data = DataBase{
-		Fam:      []string{},
-		Ima:      []string{},
-		Otch:     []string{},
-		Phone:    []string{},
-		Kolvo:    []int{},
-		Num:      []int{},
-		Capacity: []int{},
-		Status:   []bool{},
-		Date:     []string{},
-		Book:     []string{},
-		User:     []string{},
-		Admin:    []string{},
-	}
-}
-
 func saveDB() error {
-	mu.Lock()
-	defer mu.Unlock()
-
 	outFile, err := os.Create("data.json")
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка создания файла: %w", err)
 	}
 	defer outFile.Close()
-
+	
 	encoder := json.NewEncoder(outFile)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
+	if err := encoder.Encode(data); err != nil {
+		return fmt.Errorf("ошибка записи в файл: %w", err)
+	}
+	return nil
 }
 
 func findUser(login string) int {
